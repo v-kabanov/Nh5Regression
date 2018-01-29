@@ -2,6 +2,9 @@
 using System.Collections.Generic;
 using System.Data.SQLite;
 using System.Linq;
+using System.Reflection;
+using log4net;
+using NHibernate;
 using NUnit.Framework;
 using NHibernate.Cfg;
 using NHibernate.Dialect;
@@ -13,6 +16,8 @@ namespace Nh5Regression
     [TestFixture]
     public class ContainsSubquery
     {
+        private static readonly ILog Log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
+
         const string ConnectionString = "Data Source=:memory:;Version=3;New=True;";
 
         const string Mapping = @"<hibernate-mapping assembly=""Nh5Regression"" namespace=""Nh5Regression"" xmlns=""urn:nhibernate-mapping-2.2"">
@@ -20,6 +25,7 @@ namespace Nh5Regression
         <id name=""Id"" type=""Int32"">
             <generator class=""assigned""/>
         </id>
+        <version name=""IntegrityVersion"" column=""IntegrityVersion"" unsaved-value=""0"" />
         <property name=""Name"" type=""string"" />
         <many-to-one name=""Parent"" class=""ParentEntity"" column=""ParentId"" not-null=""true"" not-found=""exception"" />
     </class>
@@ -28,6 +34,7 @@ namespace Nh5Regression
         <id name=""Id"" type=""Int32"">
             <generator class=""assigned""/>
         </id>
+        <version name=""IntegrityVersion"" column=""IntegrityVersion"" unsaved-value=""0"" />
         <set name=""Children"" lazy=""true"" generic=""true"" inverse=""true"" cascade=""all-delete-orphan"">
             <key column=""ParentId"" />
             <one-to-many class=""ChildEntity"" />
@@ -38,6 +45,7 @@ namespace Nh5Regression
         <id name=""Id"" type=""Int32"">
             <generator class=""assigned""/>
         </id>
+        <version name=""IntegrityVersion"" column=""IntegrityVersion"" unsaved-value=""0"" />
         <many-to-one name=""Parent"" class=""ChildEntity"" column=""ParentId"" />
     </class>
 
@@ -79,6 +87,8 @@ namespace Nh5Regression
                 {
                     var parent = session.Get<ParentEntity>(1);
 
+                    Assert.IsFalse(NHibernateUtil.IsInitialized(parent.Children));
+
                     Assert.DoesNotThrow(() => session.Query<GrandChildEntity>()
                         .Where(e => parent.Children.Contains(e.Parent))
                         .FirstOrDefault());
@@ -88,9 +98,14 @@ namespace Nh5Regression
 
     }
 
-    public class ChildEntity // data region
+    public class Entity
     {
         public virtual int Id { get; set; }
+        public virtual int IntegrityVersion { get; set; }
+    }
+
+    public class ChildEntity : Entity
+    {
 
         public virtual string Name { get; set; }
 
@@ -109,17 +124,13 @@ namespace Nh5Regression
         }
     }
 
-    public class ParentEntity // data file
+    public class ParentEntity : Entity
     {
-        public virtual int Id { get; set; }
-
         public virtual ISet<ChildEntity> Children { get; set; } = new HashSet<ChildEntity>();
     }
 
-    public class GrandChildEntity // queued property
+    public class GrandChildEntity : Entity
     {
-        public virtual int Id { get; set; }
-
         public virtual ChildEntity Parent { get; set; }
     }
 }
