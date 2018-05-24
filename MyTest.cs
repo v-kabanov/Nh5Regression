@@ -1,8 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data.SQLite;
+using System.IO;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Reflection;
+using System.Text;
 using log4net;
 using NHibernate;
 using NUnit.Framework;
@@ -14,7 +17,7 @@ using NHibernate.Tool.hbm2ddl;
 namespace Nh5Regression
 {
     [TestFixture]
-    public class ContainsSubquery
+    public class MyTest
     {
         private static readonly ILog Log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
@@ -30,7 +33,7 @@ namespace Nh5Regression
         <many-to-one name=""Parent"" class=""ParentEntity"" column=""ParentId"" not-null=""true"" not-found=""exception"" />
     </class>
 
-    <class name=""ParentEntity"">
+    <class name=""ParentEntity"" table=""ParentEntity"">
         <id name=""Id"" type=""Int32"">
             <generator class=""assigned""/>
         </id>
@@ -66,16 +69,16 @@ namespace Nh5Regression
                         x.LogFormattedSql = true;
                     })
                 .AddXmlString(Mapping);
+            configuration.BuildMappings();
 
             var sessionFactory = configuration.BuildSessionFactory();
 
             using (var connection = new SQLiteConnection(ConnectionString))
             {
                 connection.Open();
-                using (var session = sessionFactory.OpenSession(connection))
+                new SchemaExport(configuration).Execute(false, true, false, connection, TestContext.Progress);
+                using (var session = sessionFactory.WithOptions().Connection(connection).OpenSession())
                 {
-                    new SchemaExport(configuration).Execute(false, true, false, connection, Console.Out);
-
                     var parent = new ParentEntity() { Id = 1 };
                     parent.Children.Add(new ChildEntity() {Id = 1, Parent = parent});
                     parent.Children.Add(new ChildEntity() {Id = 2, Parent = parent});
@@ -83,15 +86,21 @@ namespace Nh5Regression
                     session.Flush();
                 }
 
-                using (var session = sessionFactory.OpenSession(connection))
+                Func<ChildEntity, bool> searchExpression = e => e.Id == 1;
+
+                using (var session = sessionFactory.WithOptions().Connection(connection).OpenSession())
                 {
                     var parent = session.Get<ParentEntity>(1);
 
-                    Assert.IsFalse(NHibernateUtil.IsInitialized(parent.Children));
+                    Assert.IsNotNull(parent);
 
-                    Assert.DoesNotThrow(() => session.Query<GrandChildEntity>()
-                        .Where(e => parent.Children.Contains(e.Parent))
-                        .FirstOrDefault());
+                    var child = parent.Children
+                        .FirstOrDefault(c => searchExpression(c));
+
+                    child = parent.Children.AsQueryable()
+                        .FirstOrDefault(c => searchExpression(c));
+
+                    Assert.IsNotNull(child);
                 }
             }
         }
